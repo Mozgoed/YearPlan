@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Календарь 2026</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .month { display: inline-block; vertical-align: top; margin: 10px; }
+        .month h3 { text-align: center; }
+        .weekdays, .week { display: flex; }
+        .weekdays div, .day { width: 30px; height: 30px; line-height: 30px; margin: 1px; text-align: center; cursor: pointer; user-select: none; border-radius: 4px; border: 1px solid #ccc; }
+        .holiday-1 { background-color: pink !important; }
+        .holiday-2 { background-color: lightblue !important; }
+        .holiday-both { background-color: pink !important; border: 1px solid blue !important; }
+        .week { margin-bottom: 2px; }
+        .day.weekend { background-color: #ffeb3b; }
+    </style>
+</head>
+<body>
+<h1>Календарь 2026</h1>
+<div id="calendar"></div>
+<script>
+    // Holydays
+    const holidays1 = [
+        "2026-01-01","2026-01-02","2026-01-03","2026-01-04","2026-01-05","2026-01-06","2026-01-07","2026-01-08",
+        "2026-02-23",
+        "2026-03-08",
+        "2026-05-01","2026-05-09",
+        "2026-06-12",
+        "2026-11-04"
+    ];
+    const holidays2 = [
+        "2026-01-01","2026-03-08","2026-05-01","2026-08-31","2026-12-31"
+    ];
+
+    const calendarDiv = document.getElementById('calendar');
+    const monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    const weekDays = ["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"];
+
+    for(let month=0; month<12; month++){
+        const monthDiv = document.createElement('div');
+        monthDiv.className = 'month';
+
+        const h3 = document.createElement('h3');
+        h3.textContent = monthNames[month];
+        monthDiv.appendChild(h3);
+
+        // Week header
+        const weekdaysDiv = document.createElement('div');
+        weekdaysDiv.className = 'weekdays';
+        weekDays.forEach(d => {
+            const wd = document.createElement('div');
+            wd.textContent = d;
+            weekdaysDiv.appendChild(wd);
+        });
+        monthDiv.appendChild(weekdaysDiv);
+
+        const daysInMonth = new Date(2026, month+1, 0).getDate();
+        let weekDiv = document.createElement('div');
+        weekDiv.className = 'week';
+
+        const firstDay = new Date(2026, month, 1).getDay();
+        let offset = firstDay === 0 ? 6 : firstDay - 1;
+
+        weekDiv.style.justifyContent = 'flex-end';
+
+        // Empty cells before 1 week
+        for(let i=0;i<offset;i++){
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'day';
+            emptyDiv.style.border='1px solid white';
+            emptyDiv.style.background='white';
+            weekDiv.appendChild(emptyDiv);
+        }
+
+        for(let day=1; day<=daysInMonth; day++){
+            const dayDiv = document.createElement('div');
+            dayDiv.className = 'day';
+            const dateStr = `2026-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            dayDiv.dataset.date = dateStr;
+            dayDiv.textContent = day;
+
+            const is1 = holidays1.includes(dateStr);
+            const is2 = holidays2.includes(dateStr);
+
+            // Праздники с проверкой на совпадение
+            if(is1 && is2){
+                dayDiv.classList.add('holiday-both');
+            } else if(is1){
+                dayDiv.classList.add('holiday-1');
+            } else if(is2){
+                dayDiv.classList.add('holiday-2');
+            } else {
+                const weekdayIndex = (offset + day -1) % 7;
+                if(weekdayIndex === 5 || weekdayIndex === 6){ // СБ или ВС
+                    dayDiv.classList.add('weekend');
+                }
+            }
+
+            // Левый клик
+            dayDiv.addEventListener('click', (e)=>{
+                if(e.button === 0){
+                    if(dayDiv.style.backgroundColor === 'red'){
+                        dayDiv.style.backgroundColor = '';
+                    } else {
+                        dayDiv.style.backgroundColor = 'red';
+                    }
+                }
+            });
+
+            // Правый клик
+            dayDiv.addEventListener('contextmenu', (e)=>{
+                e.preventDefault();
+                if(dayDiv.style.backgroundColor === 'blue'){
+                    dayDiv.style.backgroundColor = '';
+                } else {
+                    dayDiv.style.backgroundColor = 'blue';
+                }
+            });
+
+            weekDiv.appendChild(dayDiv);
+
+            const weekdayIndex = (offset + day -1) % 7;
+            if(weekdayIndex === 6){
+                // После первой недели вернуть обычное распределение
+                weekDiv.style.justifyContent = 'flex-start';
+                monthDiv.appendChild(weekDiv);
+                weekDiv = document.createElement('div');
+                weekDiv.className = 'week';
+            }
+        }
+
+        // Заполняем пустышками последнюю неделю
+        while(weekDiv.children.length < 7){
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'day';
+            emptyDiv.style.border='none';
+            emptyDiv.style.background='transparent';
+            weekDiv.appendChild(emptyDiv);
+        }
+
+        if(weekDiv.children.length > 0){
+            monthDiv.appendChild(weekDiv);
+        }
+
+        calendarDiv.appendChild(monthDiv);
+    }
+</script>
+</body>
+</html>
