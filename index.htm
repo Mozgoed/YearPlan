@@ -30,7 +30,9 @@
         #storage-status { font-size: 14px; color: #526078; }
         #storage-status:empty { display: none; }
         .preset-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 24px 0; }
-        .preset-controls select, .preset-controls button { font: inherit; padding: 10px 14px; border: 1px solid #dce2eb; border-radius: 6px; background: white; color: inherit; }
+        .preset-controls select, .preset-controls button, .preset-controls input { font: inherit; padding: 10px 14px; border: 1px solid #dce2eb; border-radius: 6px; background: white; color: inherit; }
+        .preset-controls button:disabled { opacity: .4; cursor: default; }
+        .preset-controls input { min-width: 0; max-width: 100%; }
     </style>
 </head>
 <body>
@@ -40,9 +42,16 @@
 
 <div class="preset-controls">
 <label for="preset-select">Пресет</label>
-<select id="preset-select"><option value="">Выберите пресет</option></select>
+<select id="preset-select"><option value="">Без пресета</option></select>
+<button type="button" id="save-preset" disabled>Сохранить</button>
+<button type="button" id="delete-preset" disabled>Удалить</button>
 <button type="button" id="clear-marks">Очистить календарь</button>
 </div>
+<form id="create-preset-form" class="preset-controls">
+<label for="preset-name">Новый пресет</label>
+<input id="preset-name" placeholder="Название" maxlength="80" required>
+<button type="submit" id="create-preset" disabled>Создать</button>
+</form>
 <script>
     const holidays1 = [
         "01-01","01-02","01-03","01-04","01-05","01-06","01-07","01-08",
@@ -109,25 +118,100 @@
         '2027-12-30': 'red',
     });
     const presetSelect = document.getElementById('preset-select');
-    const presetOption = document.createElement('option');
-    presetOption.value = 'saved';
-    presetOption.textContent = 'Пресет 1';
-    presetSelect.appendChild(presetOption);
-    function replaceMarks(next) {
+    const saveButton = document.getElementById('save-preset');
+    const deleteButton = document.getElementById('delete-preset');
+    const nameInput = document.getElementById('preset-name');
+    const stateKey = 'yearplan:state:2027:v2';
+    const firstId = 'saved';
+    let presets = [{ id: firstId, name: 'Пресет 1', marks: { ...preset } }];
+    let selectedId = '';
+    function loadState(raw) {
+        const data = JSON.parse(raw);
+        if (!data || !Array.isArray(data.presets)) throw new Error('Invalid state');
+        const ids = new Set();
+        const loaded = data.presets.map(item => {
+            if (!item || typeof item.id !== 'string' || !item.id || ids.has(item.id) ||
+                typeof item.name !== 'string' || !item.name.trim()) throw new Error('Invalid preset');
+            ids.add(item.id);
+            return { id: item.id, name: item.name, marks: readMarks(JSON.stringify(item.marks)) };
+        });
+        if (!ids.has(firstId)) loaded.unshift({ id: firstId, name: 'Пресет 1', marks: { ...preset } });
+        const draft = readMarks(JSON.stringify(data.marks));
+        presets = loaded;
+        selectedId = loaded.some(p => p.id === data.selectedId) ? data.selectedId : '';
+        marks = draft;
+    }
+    try {
+        const raw = localStorage.getItem(stateKey);
+        if (raw !== null) loadState(raw);
+    } catch { status.textContent = 'Не удалось прочитать пресеты из памяти браузера.'; }
+    function isDirty() {
+        const current = presets.find(p => p.id === selectedId);
+        return Boolean(current && (Object.keys(marks).length !== Object.keys(current.marks).length ||
+            Object.keys(marks).some(date => marks[date] !== current.marks[date])));
+    }
+    function updateControls() {
+        saveButton.disabled = !isDirty();
+        deleteButton.disabled = !selectedId || selectedId === firstId;
+        document.getElementById('create-preset').disabled = !nameInput.value.trim();
+        presetSelect.value = selectedId;
+    }
+    function renderPresets() {
+        presetSelect.replaceChildren(new Option('Без пресета', ''));
+        presets.forEach(p => presetSelect.add(new Option(p.name, p.id)));
+        updateControls();
+    }
+    function commitState(nextMarks = marks, nextPresets = presets, nextId = selectedId) {
         try {
-            localStorage.setItem(storageKey, JSON.stringify(next));
-            marks = { ...next };
+            localStorage.setItem(stateKey, JSON.stringify({ marks: nextMarks, presets: nextPresets, selectedId: nextId }));
+            marks = { ...nextMarks };
+            presets = nextPresets;
+            selectedId = nextId;
             document.querySelectorAll('[data-date]').forEach(paintMark);
+            renderPresets();
             status.textContent = '';
+            return true;
         } catch {
-            status.textContent = 'Не удалось сохранить изменения. Отметки оставлены на месте.';
+            status.textContent = 'Не удалось сохранить изменения. Проверьте доступ к памяти браузера.';
+            updateControls();
+            return false;
         }
-        presetSelect.value = '';
+    }
+    function mayLeave() {
+        return !isDirty() || window.confirm('Изменения пресета не сохранены. Продолжить без сохранения?');
     }
     presetSelect.addEventListener('change', () => {
-        if (presetSelect.value === 'saved' && preset) replaceMarks(preset);
+        const id = presetSelect.value;
+        if (!mayLeave()) { updateControls(); return; }
+        commitState(presets.find(p => p.id === id)?.marks || {}, presets, id);
     });
-    document.getElementById('clear-marks').addEventListener('click', () => replaceMarks({}));
+    document.getElementById('clear-marks').addEventListener('click', () => {
+        commitState({});
+    });
+    saveButton.addEventListener('click', () => {
+        if (!isDirty()) return;
+        commitState(marks, presets.map(p => p.id === selectedId ? { ...p, marks: { ...marks } } : p));
+    });
+    deleteButton.addEventListener('click', () => {
+        if (!selectedId || selectedId === firstId) return;
+        commitState({}, presets.filter(p => p.id !== selectedId), '');
+    });
+    nameInput.addEventListener('input', updateControls);
+    document.getElementById('create-preset-form').addEventListener('submit', event => {
+        event.preventDefault();
+        const name = nameInput.value.trim();
+        if (!name) return;
+        if (presets.some(p => p.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+            status.textContent = 'Пресет с таким названием уже существует.';
+            return;
+        }
+        const id = crypto.randomUUID();
+        if (commitState(marks, [...presets, { id, name, marks: { ...marks } }], id)) {
+            nameInput.value = '';
+            updateControls();
+        }
+    });
+    renderPresets();
     function paintMark(cell) {
         cell.dataset.mark = marks[cell.dataset.date] || '';
         cell.setAttribute('aria-pressed', String(Boolean(marks[cell.dataset.date])));
@@ -135,18 +219,13 @@
     }
     function toggleMark(cell, color) {
         const date = cell.dataset.date;
-        const current = marks[date];
-        if (current === 'both') marks[date] = color === 'red' ? 'blue' : 'red';
-        else if (current === color) delete marks[date];
-        else if (current) marks[date] = 'both';
-        else marks[date] = color;
-        paintMark(cell);
-        try {
-            localStorage.setItem(storageKey, JSON.stringify(marks));
-            status.textContent = '';
-        } catch {
-            status.textContent = 'Не удалось сохранить: память браузера недоступна или заполнена. Отметки останутся только до закрытия страницы.';
-        }
+        const next = { ...marks };
+        const current = next[date];
+        if (current === 'both') next[date] = color === 'red' ? 'blue' : 'red';
+        else if (current === color) delete next[date];
+        else if (current) next[date] = 'both';
+        else next[date] = color;
+        commitState(next);
     }
 
     const calendarDiv = document.getElementById('calendar');
@@ -244,12 +323,9 @@
         calendarDiv.appendChild(monthDiv);
     }
     window.addEventListener('storage', event => {
-        if (event.key !== storageKey && event.key !== null) return;
-        try {
-            marks = readMarks(event.newValue);
-            document.querySelectorAll('[data-date]').forEach(paintMark);
-            status.textContent = '';
-        } catch { status.textContent = 'Не удалось прочитать отметки из другой вкладки.'; }
+        if (event.key !== stateKey && event.key !== null) return;
+        // Keep the current draft intact when another tab changes saved data.
+        status.textContent = 'Данные изменились в другой вкладке. Обновите страницу, чтобы загрузить их.';
     });
 </script>
 </body>
